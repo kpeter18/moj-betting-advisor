@@ -4,7 +4,7 @@ from scipy.stats import poisson
 from datetime import datetime
 
 # --- KONFIGURÁCIA STRÁNKY ---
-st.set_page_config(page_title="Pro Betting AI - Risk Management Edition", layout="wide")
+st.set_page_config(page_title="Pro Betting AI - Ultimate Risk Manager", layout="wide")
 
 # --- JAZYKOVÉ MUTÁCIE ---
 LANG = {
@@ -47,7 +47,7 @@ LIGY = {
 
 # --- FUNKCIA: NAČÍTANIE DÁT ---
 @st.cache_data
-def load_data_v3(liga_kod):
+def load_data_v31(liga_kod):
     url = f"https://www.football-data.co.uk/mmz4281/2324/{liga_kod}.csv"
     df = pd.read_csv(url)
     played_df = df.dropna(subset=['FTHG', 'FTAG']).copy()
@@ -69,7 +69,7 @@ def load_data_v3(liga_kod):
             s = ""
             for _, r in matches.iterrows():
                 if is_home: res = "✅" if r['FTHG'] > r['FTAG'] else ("⬜" if r['FTHG'] == r['FTAG'] else "❌")
-                else: res = "✅" if r['FTAG'] > r['FTHG'] else ("⬜" if r['FTAG'] == r['FTHG'] else "❌")
+                else: res = "✅" if r['FTAG'] > r['FTHG'] else ("⬜" if r['FTAG'] == r['FTAG'] else "❌")
                 s += res
             return s
 
@@ -92,8 +92,7 @@ def get_probabilities(e_d, e_h):
             if (i + j) > 2.5: p_o25 += prob
     return p_d * 100, p_r * 100, p_a * 100, p_o25 * 100
 
-# --- POMOCNÁ FUNKCIA: ROZŠÍRENÁ ANALÝZA S DNB A DC ---
-def render_risk_analysis(h, a, stats, ah, aa, t, bankroll):
+def render_risk_analysis(h, a, stats, ah, aa, t):
     ed, eh = stats[h]['h_att'] * stats[a]['a_def'] * ah, stats[a]['a_att'] * stats[h]['h_def'] * aa
     pd, pr, pa, po = get_probabilities(ed, eh)
     
@@ -107,17 +106,14 @@ def render_risk_analysis(h, a, stats, ah, aa, t, bankroll):
     
     st.divider()
     st.subheader(t["risk_mgmt"])
-    
     c_dnb, c_dc = st.columns(2)
     
-    # DNB (Sázka bez remízy)
     dnb_odd = (100 - pr) / pd if pd > 0 else 0
     with c_dnb:
         st.write(f"**Draw No Bet (DNB1 - {h})**")
         st.info(f"{t['fair_odd']}: {dnb_odd:.2f}")
         st.caption(t["dnb_info"])
         
-    # Double Chance (1X)
     dc_odd = 100 / (pd + pr) if (pd + pr) > 0 else 0
     with c_dc:
         st.write(f"**Double Chance (1X)**")
@@ -131,10 +127,9 @@ sel_lang = st.sidebar.selectbox("🌍 Language", list(LANG.keys()))
 t = LANG[sel_lang]
 st.sidebar.title(t["sidebar_title"])
 vybrana_liga = st.sidebar.selectbox(t["select_league"], list(LIGY.keys()))
-user_bankroll = st.sidebar.number_input(t["bankroll"], min_value=1, value=100)
 
 try:
-    stats, avg_h, avg_a, zoznam_timov, played_df, fixtures_df = load_data_v3(LIGY[vybrana_liga])
+    stats, avg_h, avg_a, zoznam_timov, played_df, fixtures_df = load_data_v31(LIGY[vybrana_liga])
     tab1, tab2, tab3, tab4 = st.tabs([t["tab1"], t["tab2"], t["tab3"], t["tab4"]])
 
     with tab1:
@@ -142,14 +137,19 @@ try:
         c1, c2 = st.columns(2)
         dom = c1.selectbox(t["home"], zoznam_timov, key="m_d")
         host = c2.selectbox(t["away"], zoznam_timov, index=1, key="m_h")
-        if st.button(t["analyze_btn"]): 
-            render_risk_analysis(dom, host, stats, avg_h, avg_a, t, user_bankroll)
+        if st.button(t["analyze_btn"]): render_risk_analysis(dom, host, stats, avg_h, avg_a, t)
 
     with tab2:
         st.header(t["tab2"])
         if st.button("RUN SCANNER"):
-            res = [{"Match": f"{d}-{h}", "Tip": "1", "%": round(get_probabilities(stats[d]['h_att']*stats[h]['a_def']*avg_h, stats[h]['a_att']*stats[d]['h_def']*avg_a)[0], 2)} for d in zoznam_timov for h in zoznam_timov if d != h and get_probabilities(stats[d]['h_att']*stats[h]['a_def']*avg_h, stats[h]['a_att']*stats[d]['h_def']*avg_a)[0] > 70]
-            st.table(pd.DataFrame(res).sort_values(by="%", ascending=False).reset_index(drop=True))
+            res = []
+            for dt in zoznam_timov:
+                for ht in zoznam_timov:
+                    if dt != ht:
+                        ed, eh = stats[dt]['h_att'] * stats[ht]['a_def'] * avg_h, stats[ht]['a_att'] * stats[dt]['h_def'] * avg_a
+                        p_d, _, _, _ = get_probabilities(ed, eh)
+                        if p_d > 70: res.append({"Match": f"{dt}-{ht}", "Tip": "1", "Chance %": round(p_d, 2)})
+            st.table(pd.DataFrame(res).sort_values(by="Chance %", ascending=False).reset_index(drop=True))
 
     with tab3:
         st.header(t["tab3"])
@@ -157,9 +157,9 @@ try:
             correct, total = 0, 0
             for _, r in played_df.iterrows():
                 ed, eh = stats[r['HomeTeam']]['h_att']*stats[r['AwayTeam']]['a_def']*avg_h, stats[r['AwayTeam']]['a_att']*stats[r['HomeTeam']]['h_def']*avg_a
-                pd_, pr_, pa_, po_ = get_probabilities(ed, eh)
+                pd_, pr_, pa_, _ = get_probabilities(ed, eh)
                 pred = "1" if pd_ > pr_ and pd_ > pa_ else ("2" if pa_ > pd_ and pa_ > pr_ else "X")
-                real = "1" if r['FTHG'] > r['FTAG'] else ("X" if r['FTHG'] == row['FTAG'] else "2")
+                real = "1" if r['FTHG'] > r['FTAG'] else ("X" if r['FTHG'] == r['FTAG'] else "2")
                 total += 1
                 if pred == real: correct += 1
             st.metric(t["reliability"], f"{(correct/total)*100:.2f}%")
@@ -172,10 +172,14 @@ try:
                 c, tot = 0, 0
                 for _, r in played_df[(played_df['HomeTeam'] == tim) | (played_df['AwayTeam'] == tim)].iterrows():
                     ed, eh = stats[r['HomeTeam']]['h_att']*stats[r['AwayTeam']]['a_def']*avg_h, stats[r['AwayTeam']]['a_att']*stats[r['HomeTeam']]['h_def']*avg_a
-                    pd_, pr_, pa_, po_ = get_probabilities(ed, eh)
-                    pred = "1" if pd_ > pr_ and pd_ > pa_ ... # (logika skrátená pre tab4)
+                    pd_, pr_, pa_, _ = get_probabilities(ed, eh)
+                    pred = "1" if pd_ > pr_ and pd_ > pa_ else ("2" if pa_ > pd_ and pa_ > pr_ else "X")
+                    real = "1" if r['FTHG'] > r['FTAG'] else ("X" if r['FTHG'] == r['FTAG'] else "2")
+                    tot += 1
+                    if pred == real: c += 1
                 if tot > 5: reliab.append({"Team": tim, "Acc %": round((c/tot)*100, 2)})
             st.session_state.gold_list = pd.DataFrame(reliab).sort_values(by="Acc %", ascending=False).head(3).reset_index(drop=True)
+            st.session_state.gold_list.index += 1
             st.table(st.session_state.gold_list)
         
         if 'gold_list' in st.session_state:
@@ -187,7 +191,8 @@ try:
                 f_opts = [f"{r['HomeTeam']} vs {r['AwayTeam']} ({r['Date']})" for _, r in team_fixtures.iterrows()]
                 selected_f = st.selectbox(t["select_match"], f_opts)
                 f_h, f_a = selected_f.split(" vs ")[0], selected_f.split(" vs ")[1].split(" (")[0]
-                render_risk_analysis(f_h, f_a, stats, avg_h, avg_a, t, user_bankroll)
+                render_risk_analysis(f_h, f_a, stats, avg_h, avg_a, t)
+            else: st.warning("No upcoming fixtures.")
 
 except Exception as e:
     st.error(f"Error: {e}")
