@@ -118,7 +118,7 @@ try:
                 # Kellyho kritérium (zjednodušené): ((p*k)-1)/(k-1)
                 kelly = ((prob/100 * odd) - 1) / (odd - 1)
                 vklad = max(0, kelly * bankroll * 0.2) # Riskujeme len 20% z Kellyho (bezpečnejšie)
-                st.write(f"👉 Odporúčaný vklad: **{vklad:.2k} €**")
+                st.write(f"👉 Odporúčaný vklad: **{vklad:.2f} €**")
             else:
                 st.write(f"{name}: Bez hodnoty ({val:.2f})")
 
